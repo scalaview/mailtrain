@@ -19,6 +19,8 @@ let request = require('request');
 let libmime = require('libmime');
 let _ = require('../lib/translate')._;
 let util = require('util');
+let redis = require('redis');
+let client = redis.createClient(config.redis.port, config.redis.host);
 
 let attachmentCache = new Map();
 let attachmentCacheSize = 0;
@@ -526,59 +528,30 @@ let sendLoop = () => {
                                         let status = err ? 3 : 1;
                                         let response = err && (err.response || err.message) || info.response || info.messageId;
                                         let responseId = response.split(/\s+/).pop();
-
-                                        db.getConnection((err, connection) => {
-                                            if (err) {
-                                                log.error('Mail', err.stack);
-                                                return;
-                                            }
-
-                                            let query = 'UPDATE `campaigns` SET `delivered`=`delivered`+1 ' + (status === 3 ? ', `bounced`=`bounced`+1 ' : '') + ' WHERE id=? LIMIT 1';
-
-                                            connection.query(query, [message.campaignId], err => {
+                                        let data = JSON.stringify({action: 'delivered', status: status, campaignId: message.campaignId, response: response, responseId: response, messageId: message.id})
+                                        client.multi().
+                                            lrem('dataQueue', data, 0).
+                                            rpush(['dataQueue', data]).
+                                            exec(function(err, reply) {
                                                 if (err) {
-                                                    log.error('Mail', err.stack);
+                                                    log.error('Redis', err.stack);
+                                                    return;
                                                 }
-
-                                                let query = 'UPDATE `campaign__' + message.campaignId + '` SET status=?, response=?, response_id=?, updated=NOW() WHERE id=? LIMIT 1';
-
-                                                connection.query(query, [status, response, responseId, message.id], err => {
-                                                    connection.release();
-                                                    if (err) {
-                                                        log.error('Mail', err.stack);
-                                                    } else {
-                                                        // log.verbose('Mail', 'Message sent and status updated for %s', message.subscription.cid);
-                                                    }
-                                                });
                                             });
-                                        });
                                     });
                                 };
                                 setImmediate(trySend);
                             } else {
-                                db.getConnection((err, connection) => {
-                                    if (err) {
-                                        log.error('Mail', err);
-                                        return;
-                                    }
-
-                                    let query = 'UPDATE `campaigns` SET `blacklisted`=`blacklisted`+1 WHERE id=? LIMIT 1';
-
-                                    connection.query(query, [message.campaignId], err => {
+                                let data = JSON.stringify({action: 'blacklisted', campaignId: message.campaignId, messageId: message.id})
+                                client.multi().
+                                    lrem('dataQueue', data, 0).
+                                    rpush(['dataQueue', data]).
+                                    exec(function(err, reply) {
                                         if (err) {
-                                            log.error('Mail', err);
+                                            log.error('Redis', err.stack);
+                                            return;
                                         }
-
-                                        let query = 'UPDATE `campaign__' + message.campaignId + '` SET status=?, response=?, response_id=?, updated=NOW() WHERE id=? LIMIT 1';
-
-                                        connection.query(query, [5, 'blacklisted', 'blacklisted', message.id], err => {
-                                            connection.release();
-                                            if (err) {
-                                                log.error('Mail', err);
-                                            }
-                                        });
                                     });
-                                });
                             }
                             setImmediate(getNext);
                         });
