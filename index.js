@@ -109,6 +109,21 @@ function spawnSenders(callback) {
     spawnSender();
 }
 
+function spawnUpdater(callback) {
+    let child = fork(__dirname + '/services/async-update.js', []);
+    let pid = child.pid;
+    tools.workers.add(child);
+
+    child.on('close', (code, signal) => {
+        tools.workers.delete(child);
+        log.error('Child', 'Sender process %s exited with %s', pid, code || signal);
+        // Respawn after 5 seconds
+        setTimeout(() => spawnUpdater(), 5 * 1000).unref();
+    });
+    setImmediate(spawnUpdater);
+    callback()
+};
+
 server.on('listening', () => {
     let addr = server.address();
     let bind = typeof addr === 'string' ? 'pipe ' + addr : 'port ' + addr.port;
@@ -124,11 +139,13 @@ server.on('listening', () => {
                 tzupdate(() => {
                     importer(() => {
                         triggers(() => {
-                            spawnSenders(() => {
-                                feedcheck(() => {
-                                    postfixBounceServer(() => {
-                                        reportProcessor.init(() => {
-                                            log.info('Service', 'All services started');
+                            spawnUpdater(() => {
+                                spawnSenders(() => {
+                                    feedcheck(() => {
+                                        postfixBounceServer(() => {
+                                            reportProcessor.init(() => {
+                                                log.info('Service', 'All services started');
+                                            });
                                         });
                                     });
                                 });
