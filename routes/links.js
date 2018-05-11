@@ -4,6 +4,7 @@ let links = require('../lib/models/links');
 let settings = require('../lib/models/settings');
 let lists = require('../lib/models/lists');
 let subscriptions = require('../lib/models/subscriptions');
+let campaigns = require('../lib/models/campaigns');
 let tools = require('../lib/tools');
 let _ = require('../lib/translate')._;
 
@@ -12,6 +13,21 @@ let express = require('express');
 let router = new express.Router();
 
 let trackImg = new Buffer('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
+
+let formatUrl = function(url, cid, callback) {
+    campaigns.getByCid(cid, (err, campaign) => {
+        if(err){
+            return callback(err);
+        }
+        let params = 'utm_source=mailtrain&utm_medium=email&utm_campaign='+campaign.name
+        if(url.indexOf("?") !== -1){
+            url += '&'+params
+        }else{
+            url += '?'+params
+        }
+        callback(null, url);
+    })
+};
 
 router.get('/:campaign/:list/:subscription', (req, res) => {
     res.writeHead(200, {
@@ -61,45 +77,58 @@ router.get('/:campaign/:list/:subscription/:link', (req, res) => {
             }
         });
 
-        if (!/\[[^\]]+\]/.test(url)) {
-            // no special tags, just pass on the link
-            return res.redirect(url);
-        }
 
-        // url might include variables, need to rewrite those just as we do with message content
-        lists.getByCid(req.params.list, (err, list) => {
-            if (err) {
+        formatUrl(url, req.params.campaign, (err, url) => {
+            if(err){
                 req.flash('danger', err.message || err);
                 return res.redirect('/');
             }
 
-            if (!list) {
-                log.error('Redirect', 'Could not resolve list for merge tags: <%s>', req.url);
+            if (!url) {
+                log.error('Redirect', 'Unresolved URL: <%s>', req.url);
                 return notFound();
             }
 
-            settings.get('serviceUrl', (err, serviceUrl) => {
+            if (!/\[[^\]]+\]/.test(url)) {
+                // no special tags, just pass on the link
+                return res.redirect(url);
+            }
+
+            // url might include variables, need to rewrite those just as we do with message content
+            lists.getByCid(req.params.list, (err, list) => {
                 if (err) {
-                    // ignore
+                    req.flash('danger', err.message || err);
+                    return res.redirect('/');
                 }
-                serviceUrl = (serviceUrl || '').toString().trim();
 
-                subscriptions.getWithMergeTags(list.id, req.params.subscription, (err, subscription) => {
+                if (!list) {
+                    log.error('Redirect', 'Could not resolve list for merge tags: <%s>', req.url);
+                    return notFound();
+                }
+
+                settings.get('serviceUrl', (err, serviceUrl) => {
                     if (err) {
-                        req.flash('danger', err.message || err);
-                        return res.redirect('/');
+                        // ignore
                     }
+                    serviceUrl = (serviceUrl || '').toString().trim();
 
-                    if (!subscription) {
-                        log.error('Redirect', 'Could not resolve subscription for merge tags: <%s>', req.url);
-                        return notFound();
-                    }
+                    subscriptions.getWithMergeTags(list.id, req.params.subscription, (err, subscription) => {
+                        if (err) {
+                            req.flash('danger', err.message || err);
+                            return res.redirect('/');
+                        }
 
-                    url = tools.formatMessage(serviceUrl, {
-                        cid: req.params.campaign
-                    }, list, subscription, url, str => encodeURIComponent(str));
+                        if (!subscription) {
+                            log.error('Redirect', 'Could not resolve subscription for merge tags: <%s>', req.url);
+                            return notFound();
+                        }
 
-                    res.redirect(url);
+                        url = tools.formatMessage(serviceUrl, {
+                            cid: req.params.campaign
+                        }, list, subscription, url, str => encodeURIComponent(str));
+
+                        res.redirect(url);
+                    });
                 });
             });
         });
