@@ -165,7 +165,9 @@ router.post('/smtp-verify', upload.array(), passport.parseForm, passport.csrfPro
                 apiVersion: '2010-12-01',
                 accessKeyId: data.sesKey,
                 secretAccessKey: data.sesSecret,
-                region: data.sesRegion
+                region: data.sesRegion,
+                endpoint: 'localhost:3000',
+                sslEnabled: false
             })
         };
     } else {
