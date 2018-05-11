@@ -109,7 +109,9 @@ function spawnSenders(callback) {
     spawnSender();
 }
 
+
 server.on('listening', () => {
+    let asyncUpdate = require('./services/async-update');
     let addr = server.address();
     let bind = typeof addr === 'string' ? 'pipe ' + addr : 'port ' + addr.port;
     log.info('Express', 'WWW server listening on %s', bind);
