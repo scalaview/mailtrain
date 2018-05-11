@@ -279,85 +279,100 @@ router.post('/ajax', (req, res) => {
 });
 
 router.get('/view/:id', passport.csrfProtection, (req, res) => {
-    campaigns.get(req.params.id, true, (err, campaign) => {
-        if (err || !campaign) {
+    campaigns.delivered(req.params.id, (err, delivered) => {
+        if(err){
             req.flash('danger', err && err.message || err || _('Could not find campaign with specified ID'));
             return res.redirect('/campaigns');
         }
-
-        let getList = (listId, callback) => {
-            lists.get(listId, (err, list) => {
-                if (err) {
-                    return callback(err);
-                }
-                if (!list) {
-                    list = {
-                        id: listId
-                    };
-                }
-                subscriptions.listTestUsers(listId, (err, testUsers) => {
-                    if (err || !testUsers) {
-                        testUsers = [];
-                    }
-                    return callback(null, list, testUsers);
-                });
-            });
-        };
-
-        getList(campaign.list, (err, list, testUsers) => {
-            if (err) {
-                req.flash('danger', err && err.message || err);
+        campaigns.bounced(req.params.id, (err, bounced) => {
+            if(err){
+                req.flash('danger', err && err.message || err || _('Could not find campaign with specified ID'));
                 return res.redirect('/campaigns');
             }
-
-            campaign.csrfToken = req.csrfToken();
-
-            campaign.list = list;
-            campaign.testUsers = testUsers;
-
-            campaign.isIdling = campaign.status === 1;
-            campaign.isSending = campaign.status === 2;
-            campaign.isFinished = campaign.status === 3;
-            campaign.isPaused = campaign.status === 4;
-            campaign.isInactive = campaign.status === 5;
-            campaign.isActive = campaign.status === 6;
-
-            campaign.isNormal = campaign.type === 1 || campaign.type === 3;
-            campaign.isRss = campaign.type === 2;
-            campaign.isTriggered = campaign.type === 4;
-
-            campaign.isScheduled = campaign.scheduled && campaign.scheduled > new Date();
-
-            // show only messages that weren't bounced as delivered
-            campaign.delivered = campaign.delivered - campaign.bounced;
-
-            campaign.openRate = campaign.delivered ? Math.round((campaign.opened / campaign.delivered) * 10000) / 100 : 0;
-            campaign.clicksRate = campaign.delivered ? Math.round((campaign.clicks / campaign.delivered) * 10000) / 100 : 0;
-            campaign.bounceRate = campaign.delivered ? Math.round((campaign.bounced / campaign.delivered) * 10000) / 100 : 0;
-            campaign.complaintRate = campaign.delivered ? Math.round((campaign.complained / campaign.delivered) * 10000) / 100 : 0;
-            campaign.unsubscribeRate = campaign.delivered ? Math.round((campaign.unsubscribed / campaign.delivered) * 10000) / 100 : 0;
-
-            campaigns.getLinks(campaign.id, (err, links) => {
-                if (err) {
-                    // ignore
+            campaigns.get(req.params.id, true, (err, campaign) => {
+                if (err || !campaign) {
+                    req.flash('danger', err && err.message || err || _('Could not find campaign with specified ID'));
+                    return res.redirect('/campaigns');
                 }
-                let index = 0;
-                campaign.links = (links || []).map(link => {
-                    link.index = ++index;
-                    link.totalPercentage = campaign.delivered ? Math.round(((link.clicks / campaign.delivered) * 100) * 1000) / 1000 : 0;
-                    link.relPercentage = campaign.clicks ? Math.round(((link.clicks / campaign.clicks) * 100) * 1000) / 1000 : 0;
-                    link.short = link.url.replace(/^https?:\/\/(www.)?/i, '');
-                    if (link.short > 63) {
-                        link.short = link.short.substr(0, 60) + '…';
+
+                let getList = (listId, callback) => {
+                    lists.get(listId, (err, list) => {
+                        if (err) {
+                            return callback(err);
+                        }
+                        if (!list) {
+                            list = {
+                                id: listId
+                            };
+                        }
+                        subscriptions.listTestUsers(listId, (err, testUsers) => {
+                            if (err || !testUsers) {
+                                testUsers = [];
+                            }
+                            return callback(null, list, testUsers);
+                        });
+                    });
+                };
+
+                getList(campaign.list, (err, list, testUsers) => {
+                    if (err) {
+                        req.flash('danger', err && err.message || err);
+                        return res.redirect('/campaigns');
                     }
-                    return link;
+
+                    campaign.csrfToken = req.csrfToken();
+
+                    campaign.list = list;
+                    campaign.testUsers = testUsers;
+
+                    campaign.isIdling = campaign.status === 1;
+                    campaign.isSending = campaign.status === 2;
+                    campaign.isFinished = campaign.status === 3;
+                    campaign.isPaused = campaign.status === 4;
+                    campaign.isInactive = campaign.status === 5;
+                    campaign.isActive = campaign.status === 6;
+
+                    campaign.isNormal = campaign.type === 1 || campaign.type === 3;
+                    campaign.isRss = campaign.type === 2;
+                    campaign.isTriggered = campaign.type === 4;
+
+                    campaign.isScheduled = campaign.scheduled && campaign.scheduled > new Date();
+
+                    // show only messages that weren't bounced as delivered
+                    campaign.delivered = delivered
+                    campaign.bounced = bounced
+                    campaign.delivered = campaign.delivered - campaign.bounced;
+
+                    campaign.openRate = campaign.delivered ? Math.round((campaign.opened / campaign.delivered) * 10000) / 100 : 0;
+                    campaign.clicksRate = campaign.delivered ? Math.round((campaign.clicks / campaign.delivered) * 10000) / 100 : 0;
+                    campaign.bounceRate = campaign.delivered ? Math.round((campaign.bounced / campaign.delivered) * 10000) / 100 : 0;
+                    campaign.complaintRate = campaign.delivered ? Math.round((campaign.complained / campaign.delivered) * 10000) / 100 : 0;
+                    campaign.unsubscribeRate = campaign.delivered ? Math.round((campaign.unsubscribed / campaign.delivered) * 10000) / 100 : 0;
+
+                    campaigns.getLinks(campaign.id, (err, links) => {
+                        if (err) {
+                            // ignore
+                        }
+                        let index = 0;
+                        campaign.links = (links || []).map(link => {
+                            link.index = ++index;
+                            link.totalPercentage = campaign.delivered ? Math.round(((link.clicks / campaign.delivered) * 100) * 1000) / 1000 : 0;
+                            link.relPercentage = campaign.clicks ? Math.round(((link.clicks / campaign.clicks) * 100) * 1000) / 1000 : 0;
+                            link.short = link.url.replace(/^https?:\/\/(www.)?/i, '');
+                            if (link.short > 63) {
+                                link.short = link.short.substr(0, 60) + '…';
+                            }
+                            return link;
+                        });
+                        campaign.showOverview = !req.query.tab || req.query.tab === 'overview';
+                        campaign.showLinks = req.query.tab === 'links';
+                        res.render('campaigns/view', campaign);
+                    });
                 });
-                campaign.showOverview = !req.query.tab || req.query.tab === 'overview';
-                campaign.showLinks = req.query.tab === 'links';
-                res.render('campaigns/view', campaign);
             });
-        });
-    });
+        })
+    })
+
 });
 
 router.post('/preview/:id', passport.parseForm, passport.csrfProtection, (req, res) => {
